@@ -322,7 +322,7 @@ class TranslatedState {
                                    int* length);
   void CreateArgumentsElementsTranslatedValues(int frame_index,
                                                Address input_frame_pointer,
-                                               bool is_rest);
+                                               bool is_rest, FILE* trace_file);
 
   void UpdateFromPreviouslyMaterializedObjects();
   Handle<Object> MaterializeAt(int frame_index, int* value_index);
@@ -353,16 +353,7 @@ class TranslatedState {
 class OptimizedFunctionVisitor BASE_EMBEDDED {
  public:
   virtual ~OptimizedFunctionVisitor() {}
-
-  // Function which is called before iteration of any optimized functions
-  // from given native context.
-  virtual void EnterContext(Context* context) = 0;
-
   virtual void VisitFunction(JSFunction* function) = 0;
-
-  // Function which is called after iteration of all optimized functions
-  // from given native context.
-  virtual void LeaveContext(Context* context) = 0;
 };
 
 class Deoptimizer : public Malloced {
@@ -475,6 +466,8 @@ class Deoptimizer : public Malloced {
   // Visit all the known optimized functions in a given isolate.
   static void VisitAllOptimizedFunctions(
       Isolate* isolate, OptimizedFunctionVisitor* visitor);
+
+  static void UnlinkOptimizedCode(Code* code, Context* native_context);
 
   // The size in bytes of the code required at a lazy deopt patch site.
   static int patch_size();
@@ -823,6 +816,10 @@ class FrameDescription {
     return OFFSET_OF(FrameDescription, register_values_.double_registers_);
   }
 
+  static int float_registers_offset() {
+    return OFFSET_OF(FrameDescription, register_values_.float_registers_);
+  }
+
   static int frame_size_offset() {
     return offsetof(FrameDescription, frame_size_);
   }
@@ -1031,7 +1028,7 @@ class MaterializedObjectStore {
   bool Remove(Address fp);
 
  private:
-  Isolate* isolate() { return isolate_; }
+  Isolate* isolate() const { return isolate_; }
   Handle<FixedArray> GetStackEntries();
   Handle<FixedArray> EnsureStackEntries(int size);
 

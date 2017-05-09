@@ -4,7 +4,7 @@
 
 #include "src/compiler/linkage.h"
 
-#include "src/ast/scopes.h"
+#include "src/assembler-inl.h"
 #include "src/code-stubs.h"
 #include "src/compilation-info.h"
 #include "src/compiler/common-operator.h"
@@ -178,7 +178,14 @@ bool Linkage::NeedsFrameStateInput(Runtime::FunctionId function) {
     case Runtime::kInlineGeneratorClose:
     case Runtime::kInlineGeneratorGetInputOrDebugPos:
     case Runtime::kInlineGeneratorGetResumeMode:
+    case Runtime::kInlineCreateJSGeneratorObject:
     case Runtime::kInlineIsArray:
+    case Runtime::kInlineIsJSMap:
+    case Runtime::kInlineIsJSSet:
+    case Runtime::kInlineIsJSMapIterator:
+    case Runtime::kInlineIsJSSetIterator:
+    case Runtime::kInlineIsJSWeakMap:
+    case Runtime::kInlineIsJSWeakSet:
     case Runtime::kInlineIsJSReceiver:
     case Runtime::kInlineIsRegExp:
     case Runtime::kInlineIsSmi:

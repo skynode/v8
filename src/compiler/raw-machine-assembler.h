@@ -174,6 +174,23 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
                     Node* value) {
     return AddNode(machine()->AtomicStore(rep), base, index, value);
   }
+#define ATOMIC_FUNCTION(name)                                                 \
+  Node* Atomic##name(MachineType rep, Node* base, Node* index, Node* value) { \
+    return AddNode(machine()->Atomic##name(rep), base, index, value);         \
+  }
+  ATOMIC_FUNCTION(Exchange);
+  ATOMIC_FUNCTION(Add);
+  ATOMIC_FUNCTION(Sub);
+  ATOMIC_FUNCTION(And);
+  ATOMIC_FUNCTION(Or);
+  ATOMIC_FUNCTION(Xor);
+#undef ATOMIC_FUNCTION
+
+  Node* AtomicCompareExchange(MachineType rep, Node* base, Node* index,
+                              Node* old_value, Node* new_value) {
+    return AddNode(machine()->AtomicCompareExchange(rep), base, index,
+                   old_value, new_value);
+  }
 
   // Arithmetic Operations.
   Node* WordAnd(Node* a, Node* b) {
@@ -429,6 +446,19 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
 
 #undef UINTPTR_BINOP
 
+  Node* Int32AbsWithOverflow(Node* a) {
+    return AddNode(machine()->Int32AbsWithOverflow().op(), a);
+  }
+
+  Node* Int64AbsWithOverflow(Node* a) {
+    return AddNode(machine()->Int64AbsWithOverflow().op(), a);
+  }
+
+  Node* IntPtrAbsWithOverflow(Node* a) {
+    return kPointerSize == 8 ? Int64AbsWithOverflow(a)
+                             : Int32AbsWithOverflow(a);
+  }
+
   Node* Float32Add(Node* a, Node* b) {
     return AddNode(machine()->Float32Add(), a, b);
   }
@@ -567,6 +597,9 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   }
   Node* ChangeFloat64ToUint32(Node* a) {
     return AddNode(machine()->ChangeFloat64ToUint32(), a);
+  }
+  Node* ChangeFloat64ToUint64(Node* a) {
+    return AddNode(machine()->ChangeFloat64ToUint64(), a);
   }
   Node* TruncateFloat64ToUint32(Node* a) {
     return AddNode(machine()->TruncateFloat64ToUint32(), a);
@@ -740,6 +773,13 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   Node* CallCFunction3(MachineType return_type, MachineType arg0_type,
                        MachineType arg1_type, MachineType arg2_type,
                        Node* function, Node* arg0, Node* arg1, Node* arg2);
+  // Call to a C function with six arguments.
+  Node* CallCFunction6(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, MachineType arg4_type,
+                       MachineType arg5_type, Node* function, Node* arg0,
+                       Node* arg1, Node* arg2, Node* arg3, Node* arg4,
+                       Node* arg5);
   // Call to a C function with eight arguments.
   Node* CallCFunction8(MachineType return_type, MachineType arg0_type,
                        MachineType arg1_type, MachineType arg2_type,
@@ -748,6 +788,15 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
                        MachineType arg7_type, Node* function, Node* arg0,
                        Node* arg1, Node* arg2, Node* arg3, Node* arg4,
                        Node* arg5, Node* arg6, Node* arg7);
+  // Call to a C function with nine arguments.
+  Node* CallCFunction9(MachineType return_type, MachineType arg0_type,
+                       MachineType arg1_type, MachineType arg2_type,
+                       MachineType arg3_type, MachineType arg4_type,
+                       MachineType arg5_type, MachineType arg6_type,
+                       MachineType arg7_type, MachineType arg8_type,
+                       Node* function, Node* arg0, Node* arg1, Node* arg2,
+                       Node* arg3, Node* arg4, Node* arg5, Node* arg6,
+                       Node* arg7, Node* arg8);
 
   // ===========================================================================
   // The following utility methods deal with control flow, hence might switch
@@ -771,6 +820,12 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   void DebugBreak();
   void Unreachable();
   void Comment(const char* msg);
+
+#if DEBUG
+  void Bind(RawMachineLabel* label, AssemblerDebugInfo info);
+  void SetInitialDebugInformation(AssemblerDebugInfo info);
+  void PrintCurrentBlock(std::ostream& os);
+#endif  // DEBUG
 
   // Add success / exception successor blocks and ends the current block ending
   // in a potentially throwing call node.
@@ -835,6 +890,8 @@ class V8_EXPORT_PRIVATE RawMachineLabel final {
   explicit RawMachineLabel(Type type = kNonDeferred)
       : deferred_(type == kDeferred) {}
   ~RawMachineLabel();
+
+  BasicBlock* block() const { return block_; }
 
  private:
   BasicBlock* block_ = nullptr;

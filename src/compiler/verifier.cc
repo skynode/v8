@@ -152,27 +152,45 @@ void Verifier::Visitor::Check(Node* node) {
                   "control");
     }
 
-    // Verify that nodes that can throw only have IfSuccess/IfException control
-    // uses.
+    // Verify that nodes that can throw either have both IfSuccess/IfException
+    // projections as the only control uses or no projections at all.
     if (!node->op()->HasProperty(Operator::kNoThrow)) {
-      int count_success = 0, count_exception = 0;
+      Node* discovered_if_exception = nullptr;
+      Node* discovered_if_success = nullptr;
+      int total_number_of_control_uses = 0;
       for (Edge edge : node->use_edges()) {
         if (!NodeProperties::IsControlEdge(edge)) {
           continue;
         }
+        total_number_of_control_uses++;
         Node* control_use = edge.from();
-        if (control_use->opcode() != IrOpcode::kIfSuccess &&
-            control_use->opcode() != IrOpcode::kIfException) {
-          V8_Fatal(__FILE__, __LINE__,
-                   "#%d:%s should be followed by IfSuccess/IfException, but is "
-                   "followed by #%d:%s",
-                   node->id(), node->op()->mnemonic(), control_use->id(),
-                   control_use->op()->mnemonic());
+        if (control_use->opcode() == IrOpcode::kIfSuccess) {
+          CHECK_NULL(discovered_if_success);  // Only one allowed.
+          discovered_if_success = control_use;
         }
-        if (control_use->opcode() == IrOpcode::kIfSuccess) ++count_success;
-        if (control_use->opcode() == IrOpcode::kIfException) ++count_exception;
-        CHECK_LE(count_success, 1);
-        CHECK_LE(count_exception, 1);
+        if (control_use->opcode() == IrOpcode::kIfException) {
+          CHECK_NULL(discovered_if_exception);  // Only one allowed.
+          discovered_if_exception = control_use;
+        }
+      }
+      if (discovered_if_success && !discovered_if_exception) {
+        V8_Fatal(__FILE__, __LINE__,
+                 "#%d:%s should be followed by IfSuccess/IfException, but is "
+                 "only followed by single #%d:%s",
+                 node->id(), node->op()->mnemonic(),
+                 discovered_if_success->id(),
+                 discovered_if_success->op()->mnemonic());
+      }
+      if (discovered_if_exception && !discovered_if_success) {
+        V8_Fatal(__FILE__, __LINE__,
+                 "#%d:%s should be followed by IfSuccess/IfException, but is "
+                 "only followed by single #%d:%s",
+                 node->id(), node->op()->mnemonic(),
+                 discovered_if_exception->id(),
+                 discovered_if_exception->op()->mnemonic());
+      }
+      if (discovered_if_success || discovered_if_exception) {
+        CHECK_EQ(2, total_number_of_control_uses);
       }
     }
   }
@@ -190,6 +208,10 @@ void Verifier::Visitor::Check(Node* node) {
       CHECK(node->op()->ValueOutputCount() == 0);
       CHECK(node->op()->EffectOutputCount() == 0);
       CHECK(node->op()->ControlOutputCount() == 0);
+      // All inputs are graph terminators.
+      for (const Node* input : node->inputs()) {
+        CHECK(IrOpcode::IsGraphTerminator(input->opcode()));
+      }
       // Type is empty.
       CheckNotTyped(node);
       break;
@@ -379,23 +401,6 @@ void Verifier::Visitor::Check(Node* node) {
       // Type is merged from other values in the graph and could be any.
       CheckTypeIs(node, Type::Any());
       break;
-    case IrOpcode::kOsrGuard:
-      // OSR values have a value and a control input.
-      CHECK_EQ(1, value_count);
-      CHECK_EQ(1, effect_count);
-      CHECK_EQ(1, control_count);
-      switch (OsrGuardTypeOf(node->op())) {
-        case OsrGuardType::kUninitialized:
-          CheckTypeIs(node, Type::None());
-          break;
-        case OsrGuardType::kSignedSmall:
-          CheckTypeIs(node, Type::SignedSmall());
-          break;
-        case OsrGuardType::kAny:
-          CheckTypeIs(node, Type::Any());
-          break;
-      }
-      break;
     case IrOpcode::kProjection: {
       // Projection has an input that produces enough values.
       int index = static_cast<int>(ProjectionIndexOf(node->op()));
@@ -487,12 +492,19 @@ void Verifier::Visitor::Check(Node* node) {
       CHECK_EQ(0, control_count);
       CHECK_EQ(0, effect_count);
       CHECK_EQ(6, input_count);
-      for (int i = 0; i < 3; ++i) {
+      // Check that the parameters and registers are kStateValues or
+      // kTypedStateValues.
+      for (int i = 0; i < 2; ++i) {
         CHECK(NodeProperties::GetValueInput(node, i)->opcode() ==
                   IrOpcode::kStateValues ||
               NodeProperties::GetValueInput(node, i)->opcode() ==
                   IrOpcode::kTypedStateValues);
       }
+      // The accumulator (InputAt(2)) cannot be kStateValues, but it can be
+      // kTypedStateValues (to signal the type). Once AST graph builder
+      // is removed, we should check this here. Until then, AST graph
+      // builder can generate expression stack as InputAt(2), which can
+      // still be kStateValues.
       break;
     }
     case IrOpcode::kStateValues:
@@ -513,7 +525,6 @@ void Verifier::Visitor::Check(Node* node) {
     // JavaScript operators
     // --------------------
     case IrOpcode::kJSEqual:
-    case IrOpcode::kJSNotEqual:
     case IrOpcode::kJSStrictEqual:
     case IrOpcode::kJSLessThan:
     case IrOpcode::kJSGreaterThan:
@@ -553,8 +564,7 @@ void Verifier::Visitor::Check(Node* node) {
       CheckTypeIs(node, Type::OrderedNumber());
       break;
     case IrOpcode::kJSToLength:
-      // Type is OrderedNumber.
-      CheckTypeIs(node, Type::OrderedNumber());
+      CheckTypeIs(node, Type::Range(0, kMaxSafeInteger, zone));
       break;
     case IrOpcode::kJSToName:
       // Type is Name.
@@ -578,12 +588,12 @@ void Verifier::Visitor::Check(Node* node) {
       CheckTypeIs(node, Type::Object());
       break;
     case IrOpcode::kJSCreateArguments:
-      // Type is OtherObject.
-      CheckTypeIs(node, Type::OtherObject());
+      // Type is Array \/ OtherObject.
+      CheckTypeIs(node, Type::ArrayOrOtherObject());
       break;
     case IrOpcode::kJSCreateArray:
-      // Type is OtherObject.
-      CheckTypeIs(node, Type::OtherObject());
+      // Type is Array.
+      CheckTypeIs(node, Type::Array());
       break;
     case IrOpcode::kJSCreateClosure:
       // Type is Function.
@@ -598,6 +608,9 @@ void Verifier::Visitor::Check(Node* node) {
       CheckTypeIs(node, Type::OtherObject());
       break;
     case IrOpcode::kJSCreateLiteralArray:
+      // Type is Array.
+      CheckTypeIs(node, Type::Array());
+      break;
     case IrOpcode::kJSCreateLiteralObject:
     case IrOpcode::kJSCreateLiteralRegExp:
       // Type is OtherObject.
@@ -724,6 +737,10 @@ void Verifier::Visitor::Check(Node* node) {
 
     case IrOpcode::kJSGeneratorStore:
       CheckNotTyped(node);
+      break;
+
+    case IrOpcode::kJSCreateGeneratorObject:
+      CheckTypeIs(node, Type::OtherObject());
       break;
 
     case IrOpcode::kJSGeneratorRestoreContinuation:
@@ -894,6 +911,11 @@ void Verifier::Visitor::Check(Node* node) {
       CheckValueInputIs(node, 0, Type::Number());
       CheckTypeIs(node, Type::Unsigned32());
       break;
+    case IrOpcode::kSpeculativeToNumber:
+      // Any -> Number
+      CheckValueInputIs(node, 0, Type::Any());
+      CheckTypeIs(node, Type::Number());
+      break;
     case IrOpcode::kPlainPrimitiveToNumber:
       // PlainPrimitive -> Number
       CheckValueInputIs(node, 0, Type::PlainPrimitive());
@@ -960,6 +982,7 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kObjectIsReceiver:
     case IrOpcode::kObjectIsSmi:
     case IrOpcode::kObjectIsString:
+    case IrOpcode::kObjectIsSymbol:
     case IrOpcode::kObjectIsUndetectable:
     case IrOpcode::kArrayBufferWasNeutered:
       CheckValueInputIs(node, 0, Type::Any());
@@ -1112,6 +1135,7 @@ void Verifier::Visitor::Check(Node* node) {
       break;
     }
     case IrOpcode::kTruncateTaggedToBit:
+    case IrOpcode::kTruncateTaggedPointerToBit:
       break;
 
     case IrOpcode::kCheckBounds:
@@ -1174,8 +1198,8 @@ void Verifier::Visitor::Check(Node* node) {
       break;
 
     case IrOpcode::kCheckFloat64Hole:
-      CheckValueInputIs(node, 0, Type::Number());
-      CheckTypeIs(node, Type::Number());
+      CheckValueInputIs(node, 0, Type::NumberOrHole());
+      CheckTypeIs(node, Type::NumberOrUndefined());
       break;
     case IrOpcode::kCheckTaggedHole:
       CheckValueInputIs(node, 0, Type::Any());
@@ -1248,6 +1272,7 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kWord32Ctz:
     case IrOpcode::kWord32ReverseBits:
     case IrOpcode::kWord32ReverseBytes:
+    case IrOpcode::kInt32AbsWithOverflow:
     case IrOpcode::kWord32Popcnt:
     case IrOpcode::kWord64And:
     case IrOpcode::kWord64Or:
@@ -1261,6 +1286,7 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kWord64Ctz:
     case IrOpcode::kWord64ReverseBits:
     case IrOpcode::kWord64ReverseBytes:
+    case IrOpcode::kInt64AbsWithOverflow:
     case IrOpcode::kWord64Equal:
     case IrOpcode::kInt32Add:
     case IrOpcode::kInt32AddWithOverflow:
@@ -1370,6 +1396,7 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kChangeFloat32ToFloat64:
     case IrOpcode::kChangeFloat64ToInt32:
     case IrOpcode::kChangeFloat64ToUint32:
+    case IrOpcode::kChangeFloat64ToUint64:
     case IrOpcode::kFloat64SilenceNaN:
     case IrOpcode::kTruncateFloat64ToUint32:
     case IrOpcode::kTruncateFloat32ToInt32:
@@ -1397,6 +1424,13 @@ void Verifier::Visitor::Check(Node* node) {
     case IrOpcode::kCheckedStore:
     case IrOpcode::kAtomicLoad:
     case IrOpcode::kAtomicStore:
+    case IrOpcode::kAtomicExchange:
+    case IrOpcode::kAtomicCompareExchange:
+    case IrOpcode::kAtomicAdd:
+    case IrOpcode::kAtomicSub:
+    case IrOpcode::kAtomicAnd:
+    case IrOpcode::kAtomicOr:
+    case IrOpcode::kAtomicXor:
 
 #define SIMD_MACHINE_OP_CASE(Name) case IrOpcode::k##Name:
       MACHINE_SIMD_OP_LIST(SIMD_MACHINE_OP_CASE)
@@ -1422,6 +1456,7 @@ void Verifier::Run(Graph* graph, Typing typing, CheckInputs check_inputs) {
     for (Node* other : node->uses()) {
       if (all.IsLive(other) && other != proj &&
           other->opcode() == IrOpcode::kProjection &&
+          other->InputAt(0) == node &&
           ProjectionIndexOf(other->op()) == ProjectionIndexOf(proj->op())) {
         V8_Fatal(__FILE__, __LINE__,
                  "Node #%d:%s has duplicate projections #%d and #%d",
@@ -1675,7 +1710,7 @@ void Verifier::VerifyNode(Node* node) {
   CHECK_EQ(OperatorProperties::GetTotalInputCount(node->op()),
            node->InputCount());
   // If this node has no effect or no control outputs,
-  // we check that no its uses are effect or control inputs.
+  // we check that none of its uses are effect or control inputs.
   bool check_no_control = node->op()->ControlOutputCount() == 0;
   bool check_no_effect = node->op()->EffectOutputCount() == 0;
   bool check_no_frame_state = node->opcode() != IrOpcode::kFrameState;

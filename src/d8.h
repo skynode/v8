@@ -280,7 +280,6 @@ class Worker {
   base::Atomic32 running_;
 };
 
-
 class ShellOptions {
  public:
   ShellOptions()
@@ -293,7 +292,6 @@ class ShellOptions {
         stress_runs(1),
         interactive_shell(false),
         test_shell(false),
-        dump_heap_constants(false),
         expected_to_throw(false),
         mock_arraybuffer_allocator(false),
         enable_inspector(false),
@@ -305,7 +303,8 @@ class ShellOptions {
         snapshot_blob(NULL),
         trace_enabled(false),
         trace_config(NULL),
-        lcov_file(NULL) {}
+        lcov_file(NULL),
+        disable_in_process_stack_traces(false) {}
 
   ~ShellOptions() {
     delete[] isolate_sources;
@@ -324,7 +323,6 @@ class ShellOptions {
   int stress_runs;
   bool interactive_shell;
   bool test_shell;
-  bool dump_heap_constants;
   bool expected_to_throw;
   bool mock_arraybuffer_allocator;
   bool enable_inspector;
@@ -337,6 +335,7 @@ class ShellOptions {
   bool trace_enabled;
   const char* trace_config;
   const char* lcov_file;
+  bool disable_in_process_stack_traces;
 };
 
 class Shell : public i::AllStatic {
@@ -440,7 +439,15 @@ class Shell : public i::AllStatic {
   static void SetUMask(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void MakeDirectory(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RemoveDirectory(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void HostImportModuleDynamically(Isolate* isolate,
+                                          Local<String> referrer,
+                                          Local<String> specifier,
+                                          Local<DynamicImportResult> result);
 
+  // Data is of type DynamicImportData*. We use void* here to be able
+  // to conform with MicrotaskCallback interface and enqueue this
+  // function in the microtask queue.
+  static void DoHostImportModuleDynamically(void* data);
   static void AddOSMethods(v8::Isolate* isolate,
                            Local<ObjectTemplate> os_template);
 

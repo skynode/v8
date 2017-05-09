@@ -54,11 +54,6 @@ break at:
 Running test: testIf
 break at:
   var a;
-  #if (true) a = true;
-  if (!a) {
-
-break at:
-  var a;
   if (true) #a = true;
   if (!a) {
 
@@ -399,8 +394,18 @@ break at:
   for (var k in o) k;
 
 break at:
+  var o = {};
+  for (var #k in o) {}
+  for (var k in o) k;
+
+break at:
   for (var k in o) {}
   for (var k in #o) k;
+  for (var k in { a:1 }) {}
+
+break at:
+  for (var k in o) {}
+  for (var #k in o) k;
   for (var k in { a:1 }) {}
 
 break at:
@@ -440,11 +445,6 @@ break at:
 
 
 Running test: testSimpleExpressions
-break at:
-function testSimpleExpressions() {
-  #1 + 2 + 3;
-  var a = 1;
-
 break at:
   1 + 2 + 3;
   var a = #1;
@@ -747,16 +747,6 @@ break at:
 
 Running test: testClasses
 break at:
-function testClasses() {
-  #class Cat {
-    constructor(name) {
-
-break at:
-  }
-  #class Lion extends Cat {
-    constructor(name) {
-
-break at:
   }
   #new Lion().speak();
 }
@@ -914,21 +904,6 @@ break at:
       setTimeout(resolveNested, 0);
       #await p;
     }
-
-break at:
-function return42() {
-  #return 42;
-}
-
-break at:
-  return 42;
-#}
-
-
-break at:
-  async function main() {
-    async function foo#() {
-      var resolveNested;
 
 break at:
       var resolveNested;

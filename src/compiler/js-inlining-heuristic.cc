@@ -146,6 +146,14 @@ Reduction JSInliningHeuristic::Reduce(Node* node) {
       break;
   }
 
+  // Don't consider a {candidate} whose frequency is below the
+  // threshold, i.e. a call site that is only hit once every N
+  // invocations of the caller.
+  if (candidate.frequency.IsKnown() &&
+      candidate.frequency.value() < FLAG_min_inlining_frequency) {
+    return NoChange();
+  }
+
   // In the general case we remember the candidate for later.
   candidates_.insert(candidate);
   return NoChange();
@@ -164,10 +172,6 @@ void JSInliningHeuristic::Finalize() {
     auto i = candidates_.begin();
     Candidate candidate = *i;
     candidates_.erase(i);
-    // Only include candidates that we've successfully called before.
-    // The candidate list is sorted, so we can exit at the first occurance of
-    // frequency 0 in the list.
-    if (candidate.frequency <= 0.0) return;
     // Make sure we don't try to inline dead candidate nodes.
     if (!candidate.node->IsDead()) {
       Reduction const reduction = InlineCandidate(candidate);
@@ -226,26 +230,21 @@ Reduction JSInliningHeuristic::InlineCandidate(Candidate const& candidate) {
     // to the known {target}); the last input is the control dependency.
     inputs[0] = target;
     inputs[input_count - 1] = if_successes[i];
-    calls[i] = graph()->NewNode(node->op(), input_count, inputs);
-    if_successes[i] = graph()->NewNode(common()->IfSuccess(), calls[i]);
+    calls[i] = if_successes[i] =
+        graph()->NewNode(node->op(), input_count, inputs);
   }
 
   // Check if we have an exception projection for the call {node}.
   Node* if_exception = nullptr;
-  for (Edge const edge : node->use_edges()) {
-    if (NodeProperties::IsControlEdge(edge) &&
-        edge.from()->opcode() == IrOpcode::kIfException) {
-      if_exception = edge.from();
-      break;
-    }
-  }
-  if (if_exception != nullptr) {
-    // Morph the {if_exception} projection into a join.
+  if (NodeProperties::IsExceptionalCall(node, &if_exception)) {
     Node* if_exceptions[kMaxCallPolymorphism + 1];
     for (int i = 0; i < num_calls; ++i) {
+      if_successes[i] = graph()->NewNode(common()->IfSuccess(), calls[i]);
       if_exceptions[i] =
           graph()->NewNode(common()->IfException(), calls[i], calls[i]);
     }
+
+    // Morph the {if_exception} projection into a join.
     Node* exception_control =
         graph()->NewNode(common()->Merge(num_calls), num_calls, if_exceptions);
     if_exceptions[num_calls] = exception_control;
@@ -258,7 +257,7 @@ Reduction JSInliningHeuristic::InlineCandidate(Candidate const& candidate) {
                      exception_control);
   }
 
-  // Morph the call site into the dispatched call sites.
+  // Morph the original call site into a join of the dispatched call sites.
   Node* control =
       graph()->NewNode(common()->Merge(num_calls), num_calls, if_successes);
   calls[num_calls] = control;
@@ -275,6 +274,9 @@ Reduction JSInliningHeuristic::InlineCandidate(Candidate const& candidate) {
     Node* node = calls[i];
     Reduction const reduction = inliner_.ReduceJSCall(node);
     if (reduction.Changed()) {
+      // Killing the call node is not strictly necessary, but it is safer to
+      // make sure we do not resurrect the node.
+      node->Kill();
       cumulative_count_ += function->shared()->ast_node_count();
     }
   }
@@ -284,9 +286,13 @@ Reduction JSInliningHeuristic::InlineCandidate(Candidate const& candidate) {
 
 bool JSInliningHeuristic::CandidateCompare::operator()(
     const Candidate& left, const Candidate& right) const {
-  if (left.frequency > right.frequency) {
+  if (right.frequency.IsUnknown()) {
     return true;
-  } else if (left.frequency < right.frequency) {
+  } else if (left.frequency.IsUnknown()) {
+    return false;
+  } else if (left.frequency.value() > right.frequency.value()) {
+    return true;
+  } else if (left.frequency.value() < right.frequency.value()) {
     return false;
   } else {
     return left.node->id() > right.node->id();
@@ -294,10 +300,12 @@ bool JSInliningHeuristic::CandidateCompare::operator()(
 }
 
 void JSInliningHeuristic::PrintCandidates() {
-  PrintF("Candidates for inlining (size=%zu):\n", candidates_.size());
+  OFStream os(stdout);
+  os << "Candidates for inlining (size=" << candidates_.size() << "):\n";
   for (const Candidate& candidate : candidates_) {
-    PrintF("  #%d:%s, frequency:%g\n", candidate.node->id(),
-           candidate.node->op()->mnemonic(), candidate.frequency);
+    os << "  #" << candidate.node->id() << ":"
+       << candidate.node->op()->mnemonic()
+       << ", frequency: " << candidate.frequency << std::endl;
     for (int i = 0; i < candidate.num_functions; ++i) {
       Handle<SharedFunctionInfo> shared =
           candidate.functions[i].is_null()

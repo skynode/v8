@@ -22,10 +22,10 @@ TEST(Marking, TransitionWhiteBlackWhite) {
     MarkBit mark_bit = bitmap->MarkBitFromIndex(position[i]);
     CHECK(Marking::IsWhite(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
-    Marking::WhiteToBlack(mark_bit);
+    Marking::WhiteToBlack<MarkBit::NON_ATOMIC>(mark_bit);
     CHECK(Marking::IsBlack(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
-    Marking::BlackToWhite(mark_bit);
+    Marking::MarkWhite(mark_bit);
     CHECK(Marking::IsWhite(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
   }
@@ -43,11 +43,11 @@ TEST(Marking, TransitionWhiteGreyBlackGrey) {
     CHECK(Marking::IsWhite(mark_bit));
     CHECK(!Marking::IsBlackOrGrey(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
-    Marking::WhiteToGrey(mark_bit);
+    Marking::WhiteToGrey<MarkBit::NON_ATOMIC>(mark_bit);
     CHECK(Marking::IsGrey(mark_bit));
     CHECK(Marking::IsBlackOrGrey(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
-    Marking::GreyToBlack(mark_bit);
+    Marking::GreyToBlack<MarkBit::NON_ATOMIC>(mark_bit);
     CHECK(Marking::IsBlack(mark_bit));
     CHECK(Marking::IsBlackOrGrey(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
@@ -55,7 +55,7 @@ TEST(Marking, TransitionWhiteGreyBlackGrey) {
     CHECK(Marking::IsGrey(mark_bit));
     CHECK(Marking::IsBlackOrGrey(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
-    Marking::GreyToWhite(mark_bit);
+    Marking::MarkWhite(mark_bit);
     CHECK(Marking::IsWhite(mark_bit));
     CHECK(!Marking::IsImpossible(mark_bit));
   }

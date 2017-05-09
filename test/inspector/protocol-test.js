@@ -7,6 +7,7 @@ InspectorTest._dispatchTable = new Map();
 InspectorTest._requestId = 0;
 InspectorTest._dumpInspectorProtocolMessages = false;
 InspectorTest._eventHandler = {};
+InspectorTest._commandsForLogging = new Set();
 
 Protocol = new Proxy({}, {
   get: function(target, agentName, receiver) {
@@ -15,7 +16,7 @@ Protocol = new Proxy({}, {
         const eventPattern = /^on(ce)?([A-Z][A-Za-z0-9]+)/;
         var match = eventPattern.exec(methodName);
         if (!match) {
-          return (args) => InspectorTest._sendCommandPromise(`${agentName}.${methodName}`, args || {});
+          return (args, contextGroupId) => InspectorTest._sendCommandPromise(`${agentName}.${methodName}`, args || {}, contextGroupId);
         } else {
           var eventName = match[2];
           eventName = eventName.charAt(0).toLowerCase() + eventName.slice(1);
@@ -30,29 +31,7 @@ Protocol = new Proxy({}, {
   }
 });
 
-var utils = {};
-(function setupUtils() {
-  utils.load = load;
-  this.load = null;
-  utils.read = read;
-  this.read = null;
-  utils.compileAndRunWithOrigin = compileAndRunWithOrigin;
-  this.compileAndRunWithOrigin = null;
-  utils.quit = quit;
-  this.quit = null;
-  utils.print = print;
-  this.print = null;
-  utils.setlocale = setlocale;
-  this.setlocale = null;
-  utils.setCurrentTimeMSForTest = setCurrentTimeMSForTest;
-  this.setCurrentTimeMSForTest = null;
-  utils.schedulePauseOnNextStatement = schedulePauseOnNextStatement;
-  this.schedulePauseOnNextStatement = null;
-  utils.cancelPauseOnNextStatement = cancelPauseOnNextStatement;
-  this.cancelPauseOnNextStatement = null;
-  utils.reconnect = reconnect;
-  this.reconnect = null;
-})();
+InspectorTest.logProtocolCommandCalls = (command) => InspectorTest._commandsForLogging.add(command);
 
 InspectorTest.log = utils.print.bind(null);
 
@@ -70,6 +49,8 @@ InspectorTest.logMessage = function(originalMessage)
     for (var key in object) {
       if (nonStableFields.has(key))
         object[key] = `<${key}>`;
+      else if (typeof object[key] === "string" && object[key].match(/\d+:\d+:\d+:debug/))
+        object[key] = object[key].replace(/\d+/, '<scriptId>');
       else if (typeof object[key] === "object")
         objects.push(object[key]);
     }
@@ -147,7 +128,8 @@ InspectorTest.logSourceLocation = function(location)
   }
   var script = InspectorTest._scriptMap.get(scriptId);
   if (!script.scriptSource) {
-    return Protocol.Debugger.getScriptSource({ scriptId })
+    // TODO(kozyatinskiy): doesn't assume that contextId == contextGroupId.
+    return Protocol.Debugger.getScriptSource({ scriptId }, script.executionContextId)
       .then(message => script.scriptSource = message.result.scriptSource)
       .then(dumpSourceWithLocation);
   }
@@ -158,6 +140,7 @@ InspectorTest.logSourceLocation = function(location)
     var line = lines[location.lineNumber];
     line = line.slice(0, location.columnNumber) + '#' + (line.slice(location.columnNumber) || '');
     lines[location.lineNumber] = line;
+    lines = lines.filter(line => line.indexOf('//# sourceURL=') === -1);
     InspectorTest.log(lines.slice(Math.max(location.lineNumber - 1, 0), location.lineNumber + 2).join('\n'));
     InspectorTest.log('');
   }
@@ -205,12 +188,12 @@ InspectorTest.startDumpingProtocolMessages = function()
   InspectorTest._dumpInspectorProtocolMessages = true;
 }
 
-InspectorTest.sendRawCommand = function(requestId, command, handler)
+InspectorTest.sendRawCommand = function(requestId, command, handler, contextGroupId)
 {
   if (InspectorTest._dumpInspectorProtocolMessages)
     utils.print("frontend: " + command);
   InspectorTest._dispatchTable.set(requestId, handler);
-  sendMessageToBackend(command);
+  sendMessageToBackend(command, contextGroupId || 0);
 }
 
 InspectorTest.checkExpectation = function(fail, name, messageObject)
@@ -248,13 +231,24 @@ InspectorTest.runTestSuite = function(testSuite)
   nextTest();
 }
 
-InspectorTest._sendCommandPromise = function(method, params)
+InspectorTest.runAsyncTestSuite = async function(testSuite) {
+  for (var test of testSuite) {
+    InspectorTest.log("\nRunning test: " + test.name);
+    await test();
+  }
+  InspectorTest.completeTest();
+}
+
+InspectorTest._sendCommandPromise = function(method, params, contextGroupId)
 {
   var requestId = ++InspectorTest._requestId;
   var messageObject = { "id": requestId, "method": method, "params": params };
   var fulfillCallback;
   var promise = new Promise(fulfill => fulfillCallback = fulfill);
-  InspectorTest.sendRawCommand(requestId, JSON.stringify(messageObject), fulfillCallback);
+  if (InspectorTest._commandsForLogging.has(method)) {
+    utils.print(method + ' called');
+  }
+  InspectorTest.sendRawCommand(requestId, JSON.stringify(messageObject), fulfillCallback, contextGroupId);
   return promise;
 }
 
@@ -299,4 +293,38 @@ InspectorTest._dispatchMessage = function(messageObject)
 
 InspectorTest.loadScript = function(fileName) {
   InspectorTest.addScript(utils.read(fileName));
+}
+
+InspectorTest.setupInjectedScriptEnvironment = function(debug) {
+  let scriptSource = '';
+  // First define all getters on Object.prototype.
+  let injectedScriptSource = utils.read('src/inspector/injected-script-source.js');
+  let getterRegex = /\.[a-zA-Z0-9]+/g;
+  let match;
+  let getters = new Set();
+  while (match = getterRegex.exec(injectedScriptSource)) {
+    getters.add(match[0].substr(1));
+  }
+  scriptSource += `(function installSettersAndGetters() {
+    let defineProperty = Object.defineProperty;
+    let ObjectPrototype = Object.prototype;\n`;
+  scriptSource += Array.from(getters).map(getter => `
+    defineProperty(ObjectPrototype, '${getter}', {
+      set() { debugger; throw 42; }, get() { debugger; throw 42; },
+      __proto__: null
+    });
+  `).join('\n') + '})();';
+  InspectorTest.addScript(scriptSource);
+
+  if (debug) {
+    InspectorTest.log('WARNING: InspectorTest.setupInjectedScriptEnvironment with debug flag for debugging only and should not be landed.');
+    InspectorTest.log('WARNING: run test with --expose-inspector-scripts flag to get more details.');
+    InspectorTest.log('WARNING: you can additionally comment rjsmin in xxd.py to get unminified injected-script-source.js.');
+    InspectorTest.setupScriptMap();
+    Protocol.Debugger.enable();
+    Protocol.Debugger.onPaused(message => {
+      let callFrames = message.params.callFrames;
+      InspectorTest.logSourceLocations(callFrames.map(frame => frame.location));
+    })
+  }
 }

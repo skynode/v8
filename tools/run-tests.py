@@ -68,8 +68,10 @@ TEST_MAP = {
     "debugger",
     "mjsunit",
     "cctest",
+    "wasm-spec-tests",
     "inspector",
     "webkit",
+    "mkgrokdump",
     "fuzzer",
     "message",
     "preparser",
@@ -81,7 +83,9 @@ TEST_MAP = {
     "debugger",
     "mjsunit",
     "cctest",
+    "wasm-spec-tests",
     "inspector",
+    "mkgrokdump",
     "fuzzer",
     "message",
     "preparser",
@@ -105,12 +109,12 @@ TEST_MAP = {
 TIMEOUT_DEFAULT = 60
 
 # Variants ordered by expected runtime (slowest first).
-VARIANTS = ["ignition_staging", "default", "turbofan"]
+VARIANTS = ["default", "noturbofan"]
 
 MORE_VARIANTS = [
   "stress",
-  "turbofan_opt",
-  "ignition",
+  "noturbofan_stress",
+  "nooptimization",
   "asm_wasm",
   "wasm_traps",
 ]
@@ -123,7 +127,7 @@ VARIANT_ALIASES = {
   # Additional variants, run on all bots.
   "more": MORE_VARIANTS,
   # Additional variants, run on a subset of bots.
-  "extra": ["nocrankshaft"],
+  "extra": ["fullcode"],
 }
 
 DEBUG_FLAGS = ["--nohard-abort", "--nodead-code-elimination",
@@ -262,9 +266,6 @@ def BuildOptions():
                     default=False, action="store_true")
   result.add_option("--download-data-only",
                     help="Deprecated",
-                    default=False, action="store_true")
-  result.add_option("--enable-inspector",
-                    help="Indicates a build with inspector support",
                     default=False, action="store_true")
   result.add_option("--extra-flags",
                     help="Additional flags to pass to each test command",
@@ -406,7 +407,7 @@ def SetupEnvironment(options):
   )
 
   if options.asan:
-    asan_options = [symbolizer]
+    asan_options = [symbolizer, "allow_user_segv_handler=1"]
     if not utils.GuessOS() == 'macos':
       # LSAN is not available on mac.
       asan_options.append('detect_leaks=1')
@@ -422,6 +423,7 @@ def SetupEnvironment(options):
       'coverage=1',
       'coverage_dir=%s' % options.sancov_dir,
       symbolizer,
+      "allow_user_segv_handler=1",
     ])
 
   if options.cfi_vptr:
@@ -496,7 +498,6 @@ def ProcessOptions(options):
       options.arch = 'ia32'
     options.asan = build_config["is_asan"]
     options.dcheck_always_on = build_config["dcheck_always_on"]
-    options.enable_inspector = build_config["v8_enable_inspector"]
     options.mode = 'debug' if build_config["is_debug"] else 'release'
     options.msan = build_config["is_msan"]
     options.no_i18n = not build_config["v8_enable_i18n_support"]
@@ -623,13 +624,6 @@ def ProcessOptions(options):
   if options.no_i18n:
     TEST_MAP["bot_default"].remove("intl")
     TEST_MAP["default"].remove("intl")
-  if not options.enable_inspector:
-    TEST_MAP["default"].remove("inspector")
-    TEST_MAP["bot_default"].remove("inspector")
-    TEST_MAP["optimize_for_size"].remove("inspector")
-    TEST_MAP["default"].remove("debugger")
-    TEST_MAP["bot_default"].remove("debugger")
-    TEST_MAP["optimize_for_size"].remove("debugger")
   return True
 
 

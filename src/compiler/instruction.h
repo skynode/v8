@@ -1109,12 +1109,12 @@ class V8_EXPORT_PRIVATE Constant final {
 
  private:
   Type type_;
-  int64_t value_;
 #if V8_TARGET_ARCH_32_BIT
   RelocInfo::Mode rmode_ = RelocInfo::NONE32;
 #else
   RelocInfo::Mode rmode_ = RelocInfo::NONE64;
 #endif
+  int64_t value_;
 };
 
 
@@ -1469,7 +1469,8 @@ std::ostream& operator<<(std::ostream& os,
 
 typedef ZoneDeque<Constant> ConstantDeque;
 typedef std::map<int, Constant, std::less<int>,
-                 zone_allocator<std::pair<const int, Constant> > > ConstantMap;
+                 ZoneAllocator<std::pair<const int, Constant> > >
+    ConstantMap;
 
 typedef ZoneDeque<Instruction*> InstructionDeque;
 typedef ZoneDeque<ReferenceMap*> ReferenceMapDeque;

@@ -46,10 +46,15 @@
   assertEquals('windows', p_platformAndLog.result().platform);
   assertEquals('winlog.log', p_platformAndLog.result().logFileName);
 
-  var p_flags = new ArgumentsProcessor(['--gc', '--separate-ic']);
+  var p_flags = new ArgumentsProcessor(['--gc', '--separate-ic=true']);
   assertTrue(p_flags.parse());
   assertEquals(TickProcessor.VmStates.GC, p_flags.result().stateFilter);
   assertTrue(p_flags.result().separateIc);
+
+  var p_flags = new ArgumentsProcessor(['--gc', '--separate-ic=false']);
+  assertTrue(p_flags.parse());
+  assertEquals(TickProcessor.VmStates.GC, p_flags.result().stateFilter);
+  assertFalse(p_flags.result().separateIc);
 
   var p_nmAndLog = new ArgumentsProcessor(['--nm=mn', 'nmlog.log']);
   assertTrue(p_nmAndLog.parse());
@@ -322,8 +327,13 @@ CppEntriesProviderMock.prototype.parseVmSymbols = function(
 
 
 function PrintMonitor(outputOrFileName) {
-  var expectedOut = this.expectedOut = typeof outputOrFileName == 'string' ?
-      this.loadExpectedOutput(outputOrFileName) : outputOrFileName;
+  this.expectedOut = outputOrFileName;
+  this.outputFile = undefined;
+  if (typeof outputOrFileName == 'string') {
+    this.expectedOut = this.loadExpectedOutput(outputOrFileName)
+    this.outputFile = outputOrFileName;
+  }
+  var expectedOut = this.expectedOut;
   var outputPos = 0;
   var diffs = this.diffs = [];
   var realOut = this.realOut = [];
@@ -361,6 +371,9 @@ PrintMonitor.prototype.finish = function() {
     print("===== actual output: =====");
     print(this.realOut.join('\n'));
     print("===== expected output: =====");
+    if (this.outputFile) {
+      print("===== File: " + this.outputFile + " =====");
+    }
     print(this.expectedOut.join('\n'));
     assertEquals([], this.diffs);
     assertNull(this.unexpectedOut);
@@ -369,7 +382,8 @@ PrintMonitor.prototype.finish = function() {
 
 
 function driveTickProcessorTest(
-    separateIc, ignoreUnknown, stateFilter, logInput, refOutput, onlySummary) {
+    separateIc, separateBytecodes, separateBuiltins, separateStubs,
+    ignoreUnknown, stateFilter, logInput, refOutput, onlySummary) {
   // TEST_FILE_NAME must be provided by test runner.
   assertEquals('string', typeof TEST_FILE_NAME);
   var pathLen = TEST_FILE_NAME.lastIndexOf('/');
@@ -380,6 +394,9 @@ function driveTickProcessorTest(
   var testsPath = TEST_FILE_NAME.substr(0, pathLen + 1);
   var tp = new TickProcessor(new CppEntriesProviderMock(),
                              separateIc,
+                             separateBytecodes,
+                             separateBuiltins,
+                             separateStubs,
                              TickProcessor.CALL_GRAPH_SIZE,
                              ignoreUnknown,
                              stateFilter,
@@ -399,23 +416,23 @@ function driveTickProcessorTest(
 (function testProcessing() {
   var testData = {
     'Default': [
-      false, false, null,
+      false, false, true, true, false, null,
       'tickprocessor-test.log', 'tickprocessor-test.default', false],
     'SeparateIc': [
-      true, false, null,
+      true, false, true, true, false, null,
       'tickprocessor-test.log', 'tickprocessor-test.separate-ic', false],
     'IgnoreUnknown': [
-      false, true, null,
+      false, false, true, true, true, null,
       'tickprocessor-test.log', 'tickprocessor-test.ignore-unknown', false],
     'GcState': [
-      false, false, TickProcessor.VmStates.GC,
+      false, false, true, true, false, TickProcessor.VmStates.GC,
       'tickprocessor-test.log', 'tickprocessor-test.gc-state', false],
     'FunctionInfo': [
-      false, false, null,
+      false, false, true, true, false, null,
       'tickprocessor-test-func-info.log', 'tickprocessor-test.func-info',
       false],
     'OnlySummary': [
-      false, false, null,
+      false, false, true, true, false, null,
       'tickprocessor-test.log', 'tickprocessor-test.only-summary', true]
   };
   for (var testName in testData) {

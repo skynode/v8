@@ -101,10 +101,17 @@ intptr_t OS::CommitPageSize() {
   return page_size;
 }
 
+void* OS::Allocate(const size_t requested, size_t* allocated,
+                   bool is_executable) {
+  return OS::Allocate(requested, allocated,
+                      is_executable ? OS::MemoryPermission::kReadWriteExecute
+                                    : OS::MemoryPermission::kReadWrite);
+}
+
 void* OS::AllocateGuarded(const size_t requested) {
   size_t allocated = 0;
-  const bool is_executable = false;
-  void* mbase = OS::Allocate(requested, &allocated, is_executable);
+  void* mbase =
+      OS::Allocate(requested, &allocated, OS::MemoryPermission::kNoAccess);
   if (allocated != requested) {
     OS::Free(mbase, allocated);
     return nullptr;
@@ -112,7 +119,6 @@ void* OS::AllocateGuarded(const size_t requested) {
   if (mbase == nullptr) {
     return nullptr;
   }
-  OS::Guard(mbase, requested);
   return mbase;
 }
 
@@ -382,6 +388,7 @@ double OS::TimeCurrentMillis() {
   return Time::Now().ToJsTime();
 }
 
+#if !V8_OS_AIX && !V8_OS_SOLARIS && !V8_OS_CYGWIN
 const char* PosixTimezoneCache::LocalTimezone(double time) {
   if (std::isnan(time)) return "";
   time_t tv = static_cast<time_t>(std::floor(time / msPerSecond));
@@ -399,6 +406,7 @@ double PosixTimezoneCache::LocalTimeOffset() {
   return static_cast<double>(t->tm_gmtoff * msPerSecond -
                              (t->tm_isdst > 0 ? 3600 * msPerSecond : 0));
 }
+#endif
 
 double PosixTimezoneCache::DaylightSavingsOffset(double time) {
   if (std::isnan(time)) return std::numeric_limits<double>::quiet_NaN();
@@ -772,6 +780,18 @@ void Thread::SetThreadLocal(LocalStorageKey key, void* value) {
   int result = pthread_setspecific(pthread_key, value);
   DCHECK_EQ(0, result);
   USE(result);
+}
+
+int GetProtectionFromMemoryPermission(OS::MemoryPermission access) {
+  switch (access) {
+    case OS::MemoryPermission::kNoAccess:
+      return PROT_NONE;
+    case OS::MemoryPermission::kReadWrite:
+      return PROT_READ | PROT_WRITE;
+    case OS::MemoryPermission::kReadWriteExecute:
+      return PROT_READ | PROT_WRITE | PROT_EXEC;
+  }
+  UNREACHABLE();
 }
 
 }  // namespace base

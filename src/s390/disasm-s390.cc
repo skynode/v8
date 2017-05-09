@@ -640,6 +640,9 @@ bool Decoder::DecodeFourByte(Instruction* instr) {
     case LM:
       Format(instr, "lm\t'r1,'r2,'d1('r3)");
       break;
+    case CS:
+      Format(instr, "cs\t'r1,'r2,'d1('r3)");
+      break;
     case SLL:
       Format(instr, "sll\t'r1,'d1('r3)");
       break;
@@ -1064,10 +1067,10 @@ bool Decoder::DecodeFourByte(Instruction* instr) {
       break;
     }
     case LPGR:
-      Format(instr, "lpgr\t'r1, 'r2");
+      Format(instr, "lpgr\t'r5,'r6");
       break;
     case LPGFR:
-      Format(instr, "lpgfr\t'r1,'r2");
+      Format(instr, "lpgfr\t'r5,'r6");
       break;
     default:
       return false;
@@ -1207,6 +1210,12 @@ bool Decoder::DecodeSixByte(Instruction* instr) {
       break;
     case LMG:
       Format(instr, "lmg\t'r1,'r2,'d2('r3)");
+      break;
+    case CSY:
+      Format(instr, "csy\t'r1,'r2,'d2('r3)");
+      break;
+    case CSG:
+      Format(instr, "csg\t'r1,'r2,'d2('r3)");
       break;
     case STMY:
       Format(instr, "stmy\t'r1,'r2,'d2('r3)");
@@ -1426,6 +1435,12 @@ bool Decoder::DecodeSixByte(Instruction* instr) {
       break;
     case MSY:
       Format(instr, "msy\t'r1,'d2('r2d,'r3)");
+      break;
+    case MSC:
+      Format(instr, "msc\t'r1,'d2('r2d,'r3)");
+      break;
+    case MSGC:
+      Format(instr, "msgc\t'r1,'d2('r2d,'r3)");
       break;
     case STEY:
       Format(instr, "stey\t'f1,'d2('r2d,'r3)");

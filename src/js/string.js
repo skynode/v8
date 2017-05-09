@@ -15,19 +15,6 @@ var searchSymbol = utils.ImportNow("search_symbol");
 
 //-------------------------------------------------------------------
 
-// ECMA-262, section 15.5.4.6
-function StringConcat(other /* and more */) {  // length == 1
-  "use strict";
-  CHECK_OBJECT_COERCIBLE(this, "String.prototype.concat");
-  var s = TO_STRING(this);
-  var len = arguments.length;
-  for (var i = 0; i < len; ++i) {
-    s = s + TO_STRING(arguments[i]);
-  }
-  return s;
-}
-
-
 // ES6 21.1.3.11.
 function StringMatchJS(pattern) {
   CHECK_OBJECT_COERCIBLE(this, "String.prototype.match");
@@ -253,6 +240,60 @@ function StringCodePointAt(pos) {
   return (first - 0xD800) * 0x400 + second + 0x2400;
 }
 
+function StringPad(thisString, maxLength, fillString) {
+  maxLength = TO_LENGTH(maxLength);
+  var stringLength = thisString.length;
+
+  if (maxLength <= stringLength) return "";
+
+  if (IS_UNDEFINED(fillString)) {
+    fillString = " ";
+  } else {
+    fillString = TO_STRING(fillString);
+    if (fillString === "") {
+      // If filler is the empty String, return S.
+      return "";
+    }
+  }
+
+  var fillLength = maxLength - stringLength;
+  var repetitions = (fillLength / fillString.length) | 0;
+  var remainingChars = (fillLength - fillString.length * repetitions) | 0;
+
+  var filler = "";
+  while (true) {
+    if (repetitions & 1) filler += fillString;
+    repetitions >>= 1;
+    if (repetitions === 0) break;
+    fillString += fillString;
+  }
+
+  if (remainingChars) {
+    filler += %_SubString(fillString, 0, remainingChars);
+  }
+
+  return filler;
+}
+
+// ES#sec-string.prototype.padstart
+// String.prototype.padStart(maxLength [, fillString])
+function StringPadStart(maxLength, fillString) {
+  CHECK_OBJECT_COERCIBLE(this, "String.prototype.padStart");
+  var thisString = TO_STRING(this);
+
+  return StringPad(thisString, maxLength, fillString) + thisString;
+}
+%FunctionSetLength(StringPadStart, 1);
+
+// ES#sec-string.prototype.padend
+// String.prototype.padEnd(maxLength [, fillString])
+function StringPadEnd(maxLength, fillString) {
+  CHECK_OBJECT_COERCIBLE(this, "String.prototype.padEnd");
+  var thisString = TO_STRING(this);
+
+  return thisString + StringPad(thisString, maxLength, fillString);
+}
+%FunctionSetLength(StringPadEnd, 1);
 
 // -------------------------------------------------------------------
 // String methods related to templates
@@ -288,8 +329,9 @@ utils.InstallFunctions(GlobalString, DONT_ENUM, [
 // Set up the non-enumerable functions on the String prototype object.
 utils.InstallFunctions(GlobalString.prototype, DONT_ENUM, [
   "codePointAt", StringCodePointAt,
-  "concat", StringConcat,
   "match", StringMatchJS,
+  "padEnd", StringPadEnd,
+  "padStart", StringPadStart,
   "repeat", StringRepeat,
   "search", StringSearch,
   "slice", StringSlice,

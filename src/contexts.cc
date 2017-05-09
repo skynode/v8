@@ -450,8 +450,7 @@ Code* Context::SearchOptimizedCodeMap(SharedFunctionInfo* shared,
 
 void Context::AddToOptimizedCodeMap(Handle<Context> native_context,
                                     Handle<SharedFunctionInfo> shared,
-                                    Handle<Code> code,
-                                    BailoutId osr_ast_id) {
+                                    Handle<Code> code, BailoutId osr_ast_id) {
   DCHECK(native_context->IsNativeContext());
   Isolate* isolate = native_context->GetIsolate();
   if (isolate->serializer_enabled()) return;

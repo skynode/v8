@@ -66,6 +66,17 @@
     'inspector': {
       'filepath': 'inspector',
     },
+    'wasm': {
+      'filepath': 'src/wasm/' \
+                  '|src/compiler/wasm',
+    },
+    'value_serializer': {
+      'filepath': 'src/value-serializer',
+    },
+    'parser': {
+      'filepath': 'src/ast/' \
+                  '|src/parsing/',
+    },
   },
 
   'WATCHLISTS': {
@@ -83,7 +94,6 @@
     ],
     'gc_changes': [
       'hpayer@chromium.org',
-      'ulan@chromium.org',
     ],
     'arm': [
       'v8-mips-ports@googlegroups.com',
@@ -102,5 +112,14 @@
     'inspector': [
       'devtools-reviews@chromium.org',
     ],
+    'wasm': [
+      'wasm-v8@google.com',
+    ],
+    'value_serializer': [
+      'jbroman+watch@chromium.org',
+    ],
+    'parser': [
+      'marja+watch@chromium.org',
+    ]
   },
 }

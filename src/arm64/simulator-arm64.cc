@@ -10,10 +10,11 @@
 
 #include "src/arm64/decoder-arm64-inl.h"
 #include "src/arm64/simulator-arm64.h"
-#include "src/assembler.h"
+#include "src/assembler-inl.h"
 #include "src/codegen.h"
 #include "src/disasm.h"
 #include "src/macro-assembler.h"
+#include "src/objects-inl.h"
 #include "src/ostreams.h"
 #include "src/runtime/runtime-utils.h"
 
@@ -207,7 +208,6 @@ int64_t Simulator::CallRegExp(byte* entry,
                               int64_t output_size,
                               Address stack_base,
                               int64_t direct_call,
-                              void* return_address,
                               Isolate* isolate) {
   CallArgument args[] = {
     CallArgument(input),
@@ -218,7 +218,6 @@ int64_t Simulator::CallRegExp(byte* entry,
     CallArgument(output_size),
     CallArgument(stack_base),
     CallArgument(direct_call),
-    CallArgument(return_address),
     CallArgument(isolate),
     CallArgument::End()
   };
@@ -539,14 +538,11 @@ void Simulator::TearDown(base::CustomMatcherHashMap* i_cache,
 // uses the ObjectPair structure.
 // The simulator assumes all runtime calls return two 64-bits values. If they
 // don't, register x1 is clobbered. This is fine because x1 is caller-saved.
-typedef ObjectPair (*SimulatorRuntimeCall)(int64_t arg0,
-                                           int64_t arg1,
-                                           int64_t arg2,
-                                           int64_t arg3,
-                                           int64_t arg4,
-                                           int64_t arg5,
-                                           int64_t arg6,
-                                           int64_t arg7);
+typedef ObjectPair (*SimulatorRuntimeCall)(int64_t arg0, int64_t arg1,
+                                           int64_t arg2, int64_t arg3,
+                                           int64_t arg4, int64_t arg5,
+                                           int64_t arg6, int64_t arg7,
+                                           int64_t arg8);
 
 typedef ObjectTriple (*SimulatorRuntimeTripleCall)(int64_t arg0, int64_t arg1,
                                                    int64_t arg2, int64_t arg3,
@@ -588,6 +584,19 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
     FATAL("ALIGNMENT EXCEPTION");
   }
 
+  int64_t* stack_pointer = reinterpret_cast<int64_t*>(sp());
+
+  const int64_t arg0 = xreg(0);
+  const int64_t arg1 = xreg(1);
+  const int64_t arg2 = xreg(2);
+  const int64_t arg3 = xreg(3);
+  const int64_t arg4 = xreg(4);
+  const int64_t arg5 = xreg(5);
+  const int64_t arg6 = xreg(6);
+  const int64_t arg7 = xreg(7);
+  const int64_t arg8 = stack_pointer[0];
+  STATIC_ASSERT(kMaxCParameters == 9);
+
   switch (redirection->type()) {
     default:
       TraceSim("Type: Unknown.\n");
@@ -605,15 +614,20 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
       // We don't know how many arguments are being passed, but we can
       // pass 8 without touching the stack. They will be ignored by the
       // host function if they aren't used.
-      TraceSim("Arguments: "
-               "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
-               "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
-               "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
-               "0x%016" PRIx64 ", 0x%016" PRIx64,
-               xreg(0), xreg(1), xreg(2), xreg(3),
-               xreg(4), xreg(5), xreg(6), xreg(7));
-      ObjectPair result = target(xreg(0), xreg(1), xreg(2), xreg(3),
-                                 xreg(4), xreg(5), xreg(6), xreg(7));
+      TraceSim(
+          "Arguments: "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64,
+          arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+      ObjectPair result =
+          target(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
       TraceSim("Returned: {%p, %p}\n", static_cast<void*>(result.x),
                static_cast<void*>(result.y));
 #ifdef DEBUG
@@ -635,16 +649,18 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
       // host function if they aren't used.
       TraceSim(
           "Arguments: "
-          "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
-          "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
-          "0x%016" PRIx64 ", 0x%016" PRIx64 ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
+          "0x%016" PRIx64 ", 0x%016" PRIx64
+          ", "
           "0x%016" PRIx64 ", 0x%016" PRIx64,
-          xreg(0), xreg(1), xreg(2), xreg(3), xreg(4), xreg(5), xreg(6),
-          xreg(7));
+          arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
       // Return location passed in x8.
       ObjectTriple* sim_result = reinterpret_cast<ObjectTriple*>(xreg(8));
-      ObjectTriple result = target(xreg(0), xreg(1), xreg(2), xreg(3), xreg(4),
-                                   xreg(5), xreg(6), xreg(7));
+      ObjectTriple result =
+          target(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7);
       TraceSim("Returned: {%p, %p, %p}\n", static_cast<void*>(result.x),
                static_cast<void*>(result.y), static_cast<void*>(result.z));
 #ifdef DEBUG
@@ -785,6 +801,8 @@ void Simulator::DoRuntimeCall(Instruction* instr) {
 void* Simulator::RedirectExternalReference(Isolate* isolate,
                                            void* external_function,
                                            ExternalReference::Type type) {
+  base::LockGuard<base::Mutex> lock_guard(
+      isolate->simulator_redirection_mutex());
   Redirection* redirection = Redirection::Get(isolate, external_function, type);
   return redirection->address_of_redirect_call();
 }
@@ -1952,33 +1970,40 @@ Simulator::TransactionSize Simulator::get_transaction_size(unsigned size) {
 }
 
 void Simulator::VisitLoadStoreAcquireRelease(Instruction* instr) {
-  unsigned rs = instr->Rs();
   unsigned rt = instr->Rt();
   unsigned rn = instr->Rn();
   LoadStoreAcquireReleaseOp op = static_cast<LoadStoreAcquireReleaseOp>(
       instr->Mask(LoadStoreAcquireReleaseMask));
   int32_t is_acquire_release = instr->LoadStoreXAcquireRelease();
-  int32_t is_not_exclusive = instr->LoadStoreXNotExclusive();
+  int32_t is_exclusive = (instr->LoadStoreXNotExclusive() == 0);
   int32_t is_load = instr->LoadStoreXLoad();
   int32_t is_pair = instr->LoadStoreXPair();
-  DCHECK_NE(is_acquire_release, 0);
-  DCHECK_EQ(is_not_exclusive, 0);  // Non exclusive unimplemented.
-  DCHECK_EQ(is_pair, 0);           // Pair unimplemented.
+  USE(is_acquire_release);
+  USE(is_pair);
+  DCHECK_NE(is_acquire_release, 0);  // Non-acquire/release unimplemented.
+  DCHECK_EQ(is_pair, 0);             // Pair unimplemented.
   unsigned access_size = 1 << instr->LoadStoreXSizeLog2();
   uintptr_t address = LoadStoreAddress(rn, 0, AddrMode::Offset);
-  DCHECK(address % access_size == 0);
+  DCHECK_EQ(address % access_size, 0);
   base::LockGuard<base::Mutex> lock_guard(&global_monitor_.Pointer()->mutex);
   if (is_load != 0) {
-    local_monitor_.NotifyLoadExcl(address, get_transaction_size(access_size));
-    global_monitor_.Pointer()->NotifyLoadExcl_Locked(
-        address, &global_monitor_processor_);
+    if (is_exclusive) {
+      local_monitor_.NotifyLoadExcl(address, get_transaction_size(access_size));
+      global_monitor_.Pointer()->NotifyLoadExcl_Locked(
+          address, &global_monitor_processor_);
+    } else {
+      local_monitor_.NotifyLoad(address);
+    }
     switch (op) {
+      case LDAR_b:
       case LDAXR_b:
         set_wreg_no_log(rt, MemoryRead<uint8_t>(address));
         break;
+      case LDAR_h:
       case LDAXR_h:
         set_wreg_no_log(rt, MemoryRead<uint16_t>(address));
         break;
+      case LDAR_w:
       case LDAXR_w:
         set_wreg_no_log(rt, MemoryRead<uint32_t>(address));
         break;
@@ -1987,27 +2012,47 @@ void Simulator::VisitLoadStoreAcquireRelease(Instruction* instr) {
     }
     LogRead(address, access_size, rt);
   } else {
-    if (local_monitor_.NotifyStoreExcl(address,
-                                       get_transaction_size(access_size)) &&
-        global_monitor_.Pointer()->NotifyStoreExcl_Locked(
-            address, &global_monitor_processor_)) {
+    if (is_exclusive) {
+      unsigned rs = instr->Rs();
+      if (local_monitor_.NotifyStoreExcl(address,
+                                         get_transaction_size(access_size)) &&
+          global_monitor_.Pointer()->NotifyStoreExcl_Locked(
+              address, &global_monitor_processor_)) {
+        switch (op) {
+          case STLXR_b:
+            MemoryWrite<uint8_t>(address, wreg(rt));
+            break;
+          case STLXR_h:
+            MemoryWrite<uint16_t>(address, wreg(rt));
+            break;
+          case STLXR_w:
+            MemoryWrite<uint32_t>(address, wreg(rt));
+            break;
+          default:
+            UNIMPLEMENTED();
+        }
+        LogWrite(address, access_size, rt);
+        set_wreg(rs, 0);
+      } else {
+        set_wreg(rs, 1);
+      }
+    } else {
+      local_monitor_.NotifyStore(address);
+      global_monitor_.Pointer()->NotifyStore_Locked(address,
+                                                    &global_monitor_processor_);
       switch (op) {
-        case STLXR_b:
+        case STLR_b:
           MemoryWrite<uint8_t>(address, wreg(rt));
           break;
-        case STLXR_h:
+        case STLR_h:
           MemoryWrite<uint16_t>(address, wreg(rt));
           break;
-        case STLXR_w:
+        case STLR_w:
           MemoryWrite<uint32_t>(address, wreg(rt));
           break;
         default:
           UNIMPLEMENTED();
       }
-      LogWrite(address, access_size, rt);
-      set_wreg(rs, 0);
-    } else {
-      set_wreg(rs, 1);
     }
   }
 }

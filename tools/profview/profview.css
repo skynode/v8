@@ -6,6 +6,10 @@ table.calltree {
   width : 12ex;
 }
 
+.numeric-hidden {
+  display : none;
+}
+
 body {
   font-family: 'Roboto', sans-serif;
 }
@@ -28,6 +32,11 @@ span.code-type-chip {
 span.code-type-chip-space {
   width : 0.5ex;
   display : inline-block;
+}
+
+span.codeid-link {
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 div.mode-button {
